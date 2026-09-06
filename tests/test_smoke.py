@@ -60,3 +60,30 @@ def test_classify_cascade_short_input():
     label, stage = det.classify_cascade("only three words")
     assert label == "Uncertain"
     assert stage == "none"
+
+
+def test_extract_txt_and_docx():
+    import io
+
+    import docx
+
+    from aitext.extract import extract_text
+
+    txt, err = extract_text("note.txt", b"plain text content here")
+    assert err is None and "plain text" in txt
+
+    d = docx.Document()
+    d.add_paragraph("Paragraph one.")
+    d.add_paragraph("Paragraph two.")
+    buf = io.BytesIO()
+    d.save(buf)
+    body, err = extract_text("doc.docx", buf.getvalue())
+    assert err is None
+    assert "Paragraph one." in body and "Paragraph two." in body
+
+
+def test_extract_unsupported_type():
+    from aitext.extract import extract_text
+
+    _, err = extract_text("image.png", b"\x89PNG")
+    assert err and "Unsupported" in err

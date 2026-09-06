@@ -16,10 +16,36 @@ import math
 from dataclasses import dataclass
 from functools import lru_cache
 
+from .paths import MODELS_DIR
 from .preprocess import split_sentences
 
 _MODEL_NAME = "gpt2"
 _MAX_TOKENS = 1024  # GPT-2 context window
+_CALIB_PATH = MODELS_DIR / "perplexity_calib.pkl"
+
+
+@lru_cache(maxsize=1)
+def _load_calibrator():
+    """Optional logistic calibrator from ``aitext.calibrate_perplexity``."""
+    try:
+        import joblib
+        return joblib.load(_CALIB_PATH)
+    except Exception:  # noqa: BLE001 - heuristic fallback is fine
+        return None
+
+
+def _ai_score(overall: float, burstiness: float, mean_sp: float) -> float:
+    """P(AI) from the perplexity features — calibrated model if available,
+    else the hand-tuned heuristic."""
+    calib = _load_calibrator()
+    if calib is not None:
+        feats = [[math.log(overall), math.log1p(burstiness),
+                  math.log(max(mean_sp, 1e-6))]]
+        return round(float(calib["model"].predict_proba(feats)[0, 1]), 4)
+    ppl_component = max(0.0, min(1.0, (60.0 - overall) / 50.0))
+    rel_burst = (burstiness ** 0.5) / mean_sp if mean_sp else 0.0
+    burst_component = max(0.0, min(1.0, (0.5 - rel_burst) / 0.5))
+    return round(0.6 * ppl_component + 0.4 * burst_component, 4)
 
 
 @dataclass
@@ -105,12 +131,7 @@ def analyze(text: str) -> PerplexityReport:
             mean_sp = overall
             burstiness = 0.0
 
-        # Map to a soft AI-likeness score.
-        # Low perplexity (<~30) and low burstiness (low vari:mean ratio) => AI-ish.
-        ppl_component = max(0.0, min(1.0, (60.0 - overall) / 50.0))
-        rel_burst = (burstiness ** 0.5) / mean_sp if mean_sp else 0.0
-        burst_component = max(0.0, min(1.0, (0.5 - rel_burst) / 0.5))
-        ai_score = round(0.6 * ppl_component + 0.4 * burst_component, 4)
+        ai_score = _ai_score(overall, burstiness, mean_sp)
 
         return PerplexityReport(
             perplexity=round(overall, 3),
@@ -118,6 +139,7 @@ def analyze(text: str) -> PerplexityReport:
             mean_sentence_perplexity=round(mean_sp, 3),
             n_sentences_scored=len(sent_ppls),
             perplexity_ai_score=ai_score,
+            note="calibrated" if _load_calibrator() is not None else "heuristic",
         )
     except Exception as exc:  # noqa: BLE001
         return _unavailable(f"perplexity computation failed: {exc}")
