@@ -21,3 +21,4 @@ models/*
 .idea/
 .vscode/*
 !.vscode/settings.json
+WALKTHROUGH.md

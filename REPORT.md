@@ -102,23 +102,43 @@ Full tables in [`docs/results.md`](docs/results.md) (`python -m aitext.report`).
 |---|---|---|
 | Stage 1 — raw AI vs human | **82.0 %** | 0.912 |
 | Stage 2 — humanized AI vs human | **85.8 %** | 0.941 |
-| **Cascade — binary (AI vs human)** | **≈ 89 %** | — |
-| Cascade — 3-way (human / raw-ai / humanized-ai) | ≈ 62 % | — |
-| GPT-2 perplexity signal alone | — | 0.768 |
+| **Cascade — binary (AI vs human)** | **85.8 %** | — |
+| Cascade — 3-way (human / raw-ai / humanized-ai) | 62.4 % | — |
+| GPT-2 perplexity signal alone | — | 0.77 (5-fold CV) |
 
-- **Humanized AI is still flagged as AI-generated ≈ 96 % of the time.** The
-  cascade's weakness is only in telling *raw* AI from *humanized* AI — both are
-  "AI text", so that boundary is fuzzy by nature. The user-facing question ("is
-  this AI?") is answered at ≈ 89 %.
-- **Human false-positive rate ≈ 16 %** — the cost of training on MAGE's hard,
-  varied human writing rather than HC3's clean Q&A. HC3-only would show ~4 % FP
-  but 96 % "accuracy" that doesn't generalise.
+**The cascade is deliberately conservative** — Stage 2 (the more careful
+"humanized vs human" check) is the decisive vote whenever Stage 1 isn't *very*
+confident (P(AI) < 0.95). On the held-out binary task:
+
+| | precision | recall |
+|---|---|---|
+| predicted **AI** | **0.98** | 0.80 |
+| predicted **human** | 0.71 | **0.97** |
+
+- **When it says "AI", it is right 98 % of the time.** It misses ~20 % of AI
+  (including ~16 % of *humanized* AI), but almost never accuses a human — the
+  right bias for an academic-integrity tool.
+- 3-way accuracy is low because *raw* AI vs *humanized* AI is barely separable
+  in TF-IDF space (both are AI text). Humanized AI is still caught *as AI*
+  83.6 % of the time.
+- HC3-only would score ~96 % but false-positives on any formal human writing;
+  MAGE + HC3 trades headline accuracy for a model that generalises.
 
 ![Stage 1](docs/figures/confusion_stage1.png)
 ![Stage 2](docs/figures/confusion_stage2.png)
 ![Binary cascade](docs/figures/confusion_binary.png)
 ![3-way cascade](docs/figures/confusion_cascade.png)
 ![Perplexity](docs/figures/perplexity_hist.png)
+
+### The 80/20 split isn't lucky — 5-fold CV (`python -m aitext.robustness`)
+
+| Stage | Accuracy | ROC-AUC |
+|---|---|---|
+| Stage 1 — raw AI vs human | 0.821 ± 0.006 | 0.909 ± 0.004 |
+| Stage 2 — humanized AI vs human | 0.863 ± 0.004 | 0.939 ± 0.004 |
+
+Standard deviation under 0.007 on every metric, so the headline numbers are the
+real thing, not a favourable split. Perplexity calibrator: 0.765 ± 0.018 (5-fold).
 
 ---
 
@@ -146,6 +166,8 @@ python -m aitext.train                                               # ~5 min
 python -m aitext.calibrate_perplexity --sample 450                   # ~3 min (GPU)
 python -m aitext.report                                              # figures + results.md
 python -m aitext.evaluate                                            # console metrics
+python -m aitext.robustness --folds 5                                # ~10 min, CV error bars
+python -m pytest -q                                                  # 18 tests
 
 streamlit run app.py
 ```

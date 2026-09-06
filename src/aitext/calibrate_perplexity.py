@@ -22,7 +22,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import cross_val_score
 
 from .paths import MODELS_DIR, STAGE1_CSV, ensure_dirs
 from .perplexity import _load_model, _text_perplexity  # noqa: PLC2701
@@ -79,14 +79,22 @@ def main() -> None:
 
     X = np.array(rows)
     y = np.array(labels)
+
+    # Honest estimate: 5-fold CV ROC-AUC, then refit on everything for the
+    # saved model.
+    cv = cross_val_score(
+        LogisticRegression(max_iter=1000, class_weight="balanced"),
+        X, y, cv=5, scoring="roc_auc")
+    print(f"\nperplexity-only ROC-AUC: {cv.mean():.3f} ± {cv.std():.3f} "
+          f"(5-fold CV, n={len(y)})")
+
     clf = LogisticRegression(max_iter=1000, class_weight="balanced")
     clf.fit(X, y)
-    auc = roc_auc_score(y, clf.predict_proba(X)[:, 1])
-    print(f"\nperplexity-only ROC-AUC (in-sample): {auc:.3f}")
     print("coefficients:", dict(zip(FEATURES, clf.coef_[0].round(3))))
 
     ensure_dirs()
-    joblib.dump({"model": clf, "features": FEATURES}, CALIB_PATH)
+    joblib.dump({"model": clf, "features": FEATURES,
+                 "cv_roc_auc": float(cv.mean())}, CALIB_PATH)
     print(f"saved -> {CALIB_PATH}")
 
 

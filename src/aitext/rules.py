@@ -72,12 +72,14 @@ def analyze(text: str) -> StyleReport:
     cv = (var ** 0.5 / mean_len) if mean_len else 0.0
     uniformity = max(0.0, min(1.0, 1.0 - cv))
 
-    # Blend into a soft supporting score.
+    # Blend into a soft supporting score. Clichés are the strongest single
+    # tell, so they carry the most weight; several distinct ones is a loud
+    # signal even with no em-dashes.
     score = 0.0
-    score += min(0.35, em_per_1k / 15 * 0.35)          # em-dash density
-    score += min(0.40, len(found) / 4 * 0.40)          # cliché hits
-    if sc >= 4:
-        score += max(0.0, (uniformity - 0.6)) / 0.4 * 0.25  # too-even rhythm
+    score += min(0.30, em_per_1k / 12 * 0.30)           # em-dash density
+    score += min(0.60, len(set(found)) / 3 * 0.60)      # distinct cliché hits
+    if sc >= 3:
+        score += max(0.0, (uniformity - 0.6)) / 0.4 * 0.20  # too-even rhythm
     score = round(min(1.0, score), 4)
 
     return StyleReport(
