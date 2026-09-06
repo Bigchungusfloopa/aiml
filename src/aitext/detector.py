@@ -29,7 +29,11 @@ from .paths import (
 from .preprocess import normalize
 
 # Stage 1 needs at least this P(AI) to short-circuit and skip Stage 2 (FR-18).
-STAGE1_AI_CONFIDENCE = 0.65
+# Tuned on the held-out split: 0.85 maximises 3-way (human/raw-AI/humanized-AI)
+# accuracy (~0.78) while keeping humanized-AI recall ~0.82. Lower values let
+# Stage 1 grab too many humanized samples and label them "raw AI"; the overall
+# "is this AI?" rate (~0.97) is flat across the range.
+STAGE1_AI_CONFIDENCE = 0.85
 # Below this, a "human" verdict is reported as tentative (FR-25).
 CONFIDENT_THRESHOLD = 0.75
 MIN_WORDS = 10  # NFR-3
@@ -106,6 +110,33 @@ class Detector:
         label = "AI" if p_ai >= 0.5 else "Human"
         confidence = p_ai if label == "AI" else 1.0 - p_ai
         return p_ai, label, confidence
+
+    # ------------------------------------------------------------------ #
+    def classify_cascade(self, text: str) -> tuple[str, str]:
+        """Two-stage cascade only — no rule/perplexity evidence.
+
+        Returns ``(final_label, decisive_stage)`` where final_label is
+        "AI" | "Human" | "Uncertain". Used by the evaluation harness so it
+        doesn't pay the GPT-2 cost per sample.
+        """
+        if not self.ready or len(text.split()) < MIN_WORDS:
+            return "Uncertain", "none"
+        tn = normalize(text)
+        p_ai1, label1, _ = self._predict(self._stage1, tn)
+
+        # FR-18: Stage 1 confidently AI -> done (raw AI).
+        if label1 == "AI" and p_ai1 >= STAGE1_AI_CONFIDENCE:
+            return "AI", "stage1"
+        if self._stage2 is None:
+            return label1, "stage1"
+
+        _, label2, _ = self._predict(self._stage2, tn)
+        if label1 == "Human":
+            # FR-19: Stage 2 is decisive.
+            return ("AI", "stage2") if label2 == "AI" else ("Human", "stage1")
+        # Stage 1 said AI but not confidently: Stage 2 tells us if it's the
+        # humanized kind; if Stage 2 disagrees we still trust Stage 1's "AI".
+        return ("AI", "stage2") if label2 == "AI" else ("AI", "stage1")
 
     # ------------------------------------------------------------------ #
     def detect(self, text: str) -> DetectionResult:

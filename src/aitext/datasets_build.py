@@ -1,21 +1,27 @@
 """Dataset acquisition and preparation (FR-1).
 
-Pulls source corpora via the Hugging Face ``datasets`` library and writes two
-prepared CSVs, each with ``text`` and ``label`` columns (label in {human, ai}):
+Writes two prepared CSVs, each with ``text`` and ``label`` columns
+(label in {human, ai}):
 
     data/stage1_raw.csv        human  vs  raw (unedited) AI text
     data/stage2_humanized.csv  human  vs  humanized (paraphrased) AI text
 
-The human portion is kept identical across both files so Stage 1 / Stage 2
-accuracy differences isolate the effect of humanization (SRS 7.2).
+Source: HC3 (Hello-SimpleAI/HC3) — human answers vs ChatGPT answers.
+The human pool is identical across both files, and the Stage 2 AI side is the
+*same* ChatGPT answers passed through a real paraphrasing model
+(``humarin/chatgpt_paraphraser_on_T5_base``), so Stage 1 vs Stage 2 accuracy
+differences isolate the effect of humanization (SRS 7.2).
 
 Run:
-    python -m aitext.datasets_build --max-per-class 8000
+    python -m aitext.datasets_build --max-per-class 6000
+    python -m aitext.datasets_build --humanizer pseudo         # fast, no model
+    python -m aitext.datasets_build --humanized-csv mine.csv   # bring your own
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import random
 import re
 
@@ -25,51 +31,101 @@ from .paths import STAGE1_CSV, STAGE2_CSV, ensure_dirs
 
 HUMAN = "human"
 AI = "ai"
+MIN_WORDS = 20
 
 
 # --------------------------------------------------------------------------- #
-# Source loaders
+# Source loader — HC3
 # --------------------------------------------------------------------------- #
-def _load_hc3(max_per_class: int) -> tuple[list[str], list[str]]:
-    """HC3 (Hello-SimpleAI/HC3): human answers vs ChatGPT answers."""
-    from datasets import load_dataset
+def _load_hc3(max_per_class: int, seed: int) -> tuple[list[str], list[str]]:
+    """HC3 human answers vs ChatGPT answers.
 
-    ds = load_dataset("Hello-SimpleAI/HC3", "all", split="train")
-    human, ai = [], []
-    for row in ds:
-        for h in row.get("human_answers") or []:
-            if h and len(h.split()) >= 20:
-                human.append(h.strip())
-        for a in row.get("chatgpt_answers") or []:
-            if a and len(a.split()) >= 20:
-                ai.append(a.strip())
-    random.shuffle(human)
-    random.shuffle(ai)
+    ``datasets`` 3+ dropped script-based loaders, so we pull the raw JSONL
+    straight from the Hub instead of ``load_dataset``.
+    """
+    from huggingface_hub import hf_hub_download
+
+    path = hf_hub_download("Hello-SimpleAI/HC3", "all.jsonl", repo_type="dataset")
+    human: list[str] = []
+    ai: list[str] = []
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            row = json.loads(line)
+            for h in row.get("human_answers") or []:
+                if h and len(h.split()) >= MIN_WORDS:
+                    human.append(_clean(h))
+            for a in row.get("chatgpt_answers") or []:
+                if a and len(a.split()) >= MIN_WORDS:
+                    ai.append(_clean(a))
+
+    rng = random.Random(seed)
+    rng.shuffle(human)
+    rng.shuffle(ai)
     return human[:max_per_class], ai[:max_per_class]
 
 
-def _load_mage_supplement(max_items: int) -> list[str]:
-    """Optional extra raw-AI samples from MAGE (yaful/MAGE). Best effort."""
-    try:
-        from datasets import load_dataset
+_WS = re.compile(r"\s+")
 
-        ds = load_dataset("yaful/MAGE", split="train", streaming=True)
-        out = []
-        for row in ds:
-            # MAGE: label 0 = machine, 1 = human (per dataset card)
-            if row.get("label") == 0 and row.get("text"):
-                out.append(row["text"].strip())
-                if len(out) >= max_items:
-                    break
-        return out
-    except Exception as exc:  # noqa: BLE001 - supplement is optional
-        print(f"[datasets_build] MAGE supplement skipped: {exc}")
-        return []
+
+def _clean(text: str) -> str:
+    return _WS.sub(" ", text).strip()
 
 
 # --------------------------------------------------------------------------- #
-# Humanization fallback
+# Humanizers
 # --------------------------------------------------------------------------- #
+def _humanize_t5(texts: list[str], batch_size: int = 24,
+                 sents_per_chunk: int = 3, max_tokens: int = 200) -> list[str]:
+    """Paraphrase texts with a real T5 paraphraser (humarin/...T5_base).
+
+    Works in chunks of a few sentences at a time (not the whole document, which
+    T5's 512-token window would truncate, and not sentence-by-sentence, which is
+    ~5x more generation calls). Greedy decoding; uses MPS/CUDA when available.
+    """
+    import torch
+    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+
+    from .preprocess import split_sentences
+
+    name = "humarin/chatgpt_paraphraser_on_T5_base"
+    device = ("mps" if torch.backends.mps.is_available()
+              else "cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[humanize] loading {name} on {device}", flush=True)
+    tok = AutoTokenizer.from_pretrained(name)
+    model = AutoModelForSeq2SeqLM.from_pretrained(name).to(device).eval()
+
+    # Break each text into ~sents_per_chunk-sentence chunks; remember ownership.
+    flat: list[str] = []
+    owner: list[int] = []
+    for i, text in enumerate(texts):
+        sents = split_sentences(text) or [text]
+        for c in range(0, len(sents), sents_per_chunk):
+            chunk = " ".join(sents[c:c + sents_per_chunk])
+            flat.append(f"paraphrase: {chunk}")
+            owner.append(i)
+
+    out: list[str] = [""] * len(flat)
+    total = len(flat)
+    with torch.no_grad():
+        for start in range(0, total, batch_size):
+            batch = flat[start:start + batch_size]
+            enc = tok(batch, return_tensors="pt", padding=True,
+                      truncation=True, max_length=max_tokens).to(device)
+            gen = model.generate(**enc, num_beams=1, do_sample=False,
+                                 max_new_tokens=max_tokens,
+                                 no_repeat_ngram_size=3, repetition_penalty=1.2)
+            for j, dec in enumerate(tok.batch_decode(gen,
+                                                     skip_special_tokens=True)):
+                out[start + j] = dec.strip()
+            if start % (batch_size * 10) == 0:
+                print(f"[humanize] {start}/{total} chunks", flush=True)
+
+    buf: dict[int, list[str]] = {}
+    for idx, piece in zip(owner, out):
+        buf.setdefault(idx, []).append(piece)
+    return [_clean(" ".join(buf.get(i, [texts[i]]))) for i in range(len(texts))]
+
+
 _CONTRACTIONS = {
     "do not": "don't", "does not": "doesn't", "did not": "didn't",
     "cannot": "can't", "will not": "won't", "is not": "isn't",
@@ -84,66 +140,60 @@ _SWAPS = {
 }
 
 
-def _pseudo_humanize(text: str, rng: random.Random) -> str:
-    """Cheap, dependency-free stand-in for a paraphrasing tool.
-
-    This is a FALLBACK ONLY. For a meaningful Stage 2 model, replace
-    data/stage2_humanized.csv with real Quillbot / Undetectable.ai / LLM-rewritten
-    output (SRS 7.1). A banner is printed when this path is used.
-    """
-    t = text
-    for a, b in _CONTRACTIONS.items():
-        t = re.sub(rf"\b{a}\b", b, t, flags=re.IGNORECASE)
-    for a, b in _SWAPS.items():
-        t = re.sub(rf"\b{a}\b", b, t, flags=re.IGNORECASE)
-    # Perturb sentence order slightly and drop the occasional filler opener.
-    sents = re.split(r"(?<=[.!?])\s+", t)
-    sents = [s for s in sents if s.strip()]
-    if len(sents) > 3 and rng.random() < 0.5:
-        i = rng.randrange(len(sents) - 1)
-        sents[i], sents[i + 1] = sents[i + 1], sents[i]
-    return " ".join(sents)
+def _humanize_pseudo(texts: list[str], seed: int) -> list[str]:
+    """Cheap dependency-free stand-in. Lower quality than --humanizer t5."""
+    rng = random.Random(seed)
+    out = []
+    for text in texts:
+        t = text
+        for a, b in {**_CONTRACTIONS, **_SWAPS}.items():
+            t = re.sub(rf"\b{a}\b", b, t, flags=re.IGNORECASE)
+        sents = [s for s in re.split(r"(?<=[.!?])\s+", t) if s.strip()]
+        if len(sents) > 3 and rng.random() < 0.5:
+            i = rng.randrange(len(sents) - 1)
+            sents[i], sents[i + 1] = sents[i + 1], sents[i]
+        out.append(_clean(" ".join(sents)))
+    return out
 
 
 # --------------------------------------------------------------------------- #
 # Build
 # --------------------------------------------------------------------------- #
-def _write(path, texts_labels: list[tuple[str, str]]) -> None:
-    df = pd.DataFrame(texts_labels, columns=["text", "label"])
-    df = df.dropna().drop_duplicates(subset="text")
+def _write(path, rows: list[tuple[str, str]]) -> None:
+    df = pd.DataFrame(rows, columns=["text", "label"])
+    df = df.dropna()
+    df = df[df["text"].str.split().str.len() >= 5]
+    df = df.drop_duplicates(subset="text")
     df = df.sample(frac=1.0, random_state=42).reset_index(drop=True)
     df.to_csv(path, index=False)
     print(f"[datasets_build] wrote {path}  ({len(df)} rows, "
           f"{(df.label == HUMAN).sum()} human / {(df.label == AI).sum()} ai)")
 
 
-def build(max_per_class: int = 8000, seed: int = 42,
-          humanized_csv: str | None = None) -> None:
+def build(max_per_class: int = 6000, seed: int = 42,
+          humanizer: str = "t5", humanized_csv: str | None = None) -> None:
     ensure_dirs()
-    random.seed(seed)
-    rng = random.Random(seed)
-
-    human, raw_ai = _load_hc3(max_per_class)
-    if len(raw_ai) < max_per_class:
-        raw_ai += _load_mage_supplement(max_per_class - len(raw_ai))
-
+    human, raw_ai = _load_hc3(max_per_class, seed)
     n = min(len(human), len(raw_ai))
     human, raw_ai = human[:n], raw_ai[:n]
+    print(f"[datasets_build] HC3: {n} human / {n} raw-AI samples")
 
-    # Stage 1: human vs raw AI
+    # Stage 1
     _write(STAGE1_CSV,
            [(t, HUMAN) for t in human] + [(t, AI) for t in raw_ai])
 
-    # Stage 2: same human pool vs humanized AI
+    # Stage 2 — same human pool, humanized version of the same AI answers
     if humanized_csv:
         hdf = pd.read_csv(humanized_csv)
-        humanized = hdf.loc[hdf["label"].str.lower() == AI, "text"].tolist()
-        print(f"[datasets_build] using real humanized text from {humanized_csv}")
+        humanized = hdf.loc[hdf["label"].astype(str).str.lower() == AI,
+                            "text"].tolist()
+        print(f"[datasets_build] Stage 2 AI side from {humanized_csv}")
+    elif humanizer == "pseudo":
+        print("[datasets_build] Stage 2: pseudo-humanizer (fast, low fidelity)")
+        humanized = _humanize_pseudo(raw_ai, seed)
     else:
-        print("[datasets_build] WARNING: no --humanized-csv given; generating a "
-              "pseudo-humanized Stage 2 set. Replace with real paraphrased data "
-              "for a trustworthy Stage 2 model (SRS 9).")
-        humanized = [_pseudo_humanize(t, rng) for t in raw_ai]
+        print("[datasets_build] Stage 2: T5 paraphraser")
+        humanized = _humanize_t5(raw_ai)
 
     m = min(len(human), len(humanized))
     _write(STAGE2_CSV,
@@ -152,12 +202,14 @@ def build(max_per_class: int = 8000, seed: int = 42,
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Build Stage 1 / Stage 2 training CSVs")
-    ap.add_argument("--max-per-class", type=int, default=8000)
+    ap.add_argument("--max-per-class", type=int, default=6000)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--humanizer", choices=["t5", "pseudo"], default="t5",
+                    help="how to generate Stage 2 humanized AI text")
     ap.add_argument("--humanized-csv", default=None,
-                    help="CSV of real humanized AI text (text,label) for Stage 2")
+                    help="CSV (text,label) of real humanized AI text for Stage 2")
     args = ap.parse_args()
-    build(args.max_per_class, args.seed, args.humanized_csv)
+    build(args.max_per_class, args.seed, args.humanizer, args.humanized_csv)
 
 
 if __name__ == "__main__":

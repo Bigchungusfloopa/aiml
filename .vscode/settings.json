@@ -1,0 +1,7 @@
+{
+  "python.defaultInterpreterPath": "/Users/saish/.pyenv/versions/3.12.1/bin/python3",
+  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.extraPaths": ["src"],
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": ["tests"]
+}

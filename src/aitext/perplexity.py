@@ -42,20 +42,21 @@ class PerplexityReport:
 @lru_cache(maxsize=1)
 def _load_model():
     import torch
-    from transformers import GPT2LMHeadModel, GPT2TokenizerFast
+    from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    tok = GPT2TokenizerFast.from_pretrained(_MODEL_NAME)
-    model = GPT2LMHeadModel.from_pretrained(_MODEL_NAME)
-    model.eval()
+    device = ("mps" if torch.backends.mps.is_available()
+              else "cuda" if torch.cuda.is_available() else "cpu")
+    tok = AutoTokenizer.from_pretrained(_MODEL_NAME)
+    model = AutoModelForCausalLM.from_pretrained(_MODEL_NAME).to(device).eval()
     torch.set_grad_enabled(False)
-    return tok, model
+    return tok, model, device
 
 
-def _text_perplexity(text: str, tok, model) -> float | None:
+def _text_perplexity(text: str, tok, model, device) -> float | None:
     import torch
 
     enc = tok(text, return_tensors="pt", truncation=True, max_length=_MAX_TOKENS)
-    input_ids = enc["input_ids"]
+    input_ids = enc["input_ids"].to(device)
     if input_ids.shape[1] < 2:
         return None
     out = model(input_ids, labels=input_ids)
@@ -81,16 +82,16 @@ def analyze(text: str) -> PerplexityReport:
         return _unavailable("text too short for perplexity analysis")
 
     try:
-        tok, model = _load_model()
+        tok, model, device = _load_model()
     except Exception as exc:  # noqa: BLE001 - degrade gracefully (NFR-3)
         return _unavailable(f"GPT-2 unavailable: {exc}")
 
     try:
-        overall = _text_perplexity(text, tok, model)
+        overall = _text_perplexity(text, tok, model, device)
         sent_ppls = []
         for s in split_sentences(text):
             if len(s.split()) >= 4:
-                p = _text_perplexity(s, tok, model)
+                p = _text_perplexity(s, tok, model, device)
                 if p is not None and math.isfinite(p):
                     sent_ppls.append(p)
 
