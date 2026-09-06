@@ -23,7 +23,7 @@ More RAM than Streamlit's free tier, so GPT-2 perplexity stays enabled.
 
    ```yaml
    ---
-   title: AI-Generated Text Detection
+   title: czechtext
    emoji: 🔍
    colorFrom: red
    colorTo: gray
