@@ -83,8 +83,7 @@ def main() -> None:
         y2, pred2 = _stage_preds(det._stage2, s2)  # noqa: SLF001
         print(classification_report(y2, pred2, digits=3, zero_division=0))
 
-    # --- Cascade 3-way ---
-    print("\n===== Cascade (3-way: human / raw-ai / humanized-ai) =====")
+    # --- Cascade ---
     rows = []
     for t, lab in zip(s1["text"], s1["label"].str.lower()):
         gold = "raw-ai" if lab == "ai" else "human"
@@ -96,6 +95,14 @@ def main() -> None:
 
     gold = [g for g, _ in rows]
     pred = [p for _, p in rows]
+
+    # Binary view first — this is the number a user actually cares about.
+    bg = ["human" if g == "human" else "ai" for g in gold]
+    bp = ["human" if p == "human" else "ai" for p in pred]
+    print("\n===== Cascade (binary: AI vs human) =====")
+    print(classification_report(bg, bp, digits=3, zero_division=0))
+
+    print("\n===== Cascade (3-way: human / raw-ai / humanized-ai) =====")
     labels = ["human", "raw-ai", "humanized-ai"]
     print(classification_report(gold, pred, labels=labels, digits=3,
                                 zero_division=0))
