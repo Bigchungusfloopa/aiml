@@ -93,65 +93,131 @@ def get_detector() -> Detector:
     return Detector()
 
 
+def _lean(p_ai: float) -> str:
+    """Plain-English read of a P(AI) value."""
+    if p_ai >= 0.80:
+        return "strongly AI"
+    if p_ai >= 0.60:
+        return "leans AI"
+    if p_ai > 0.40:
+        return "borderline"
+    if p_ai > 0.20:
+        return "leans human"
+    return "strongly human"
+
+
+def _score_word(s: float) -> str:
+    if s >= 0.66:
+        return "very AI-like"
+    if s >= 0.45:
+        return "somewhat AI-like"
+    if s >= 0.30:
+        return "mixed"
+    return "human-like"
+
+
+def _K(label: str) -> str:
+    return f'<span class="k">{label:<11}</span>'
+
+
+def _sub(label: str, text: str) -> str:
+    return f'  <span class="muted">&middot; {label:<10}</span> {text}'
+
+
 def _fmt_result(result) -> str:
-    """Plain-text terminal rendering of a DetectionResult."""
+    """Layman-readable terminal rendering that still shows every parameter."""
     c = COLOR.get(result.label, "#c9c9c9")
-    lines = [
-        f'<span class="verdict" style="color:{c}">{result.label.lower()}</span>'
-        f'  <span class="muted">::</span>  {html.escape(result.confidence_band)}',
-        f'<span class="k">confidence </span> {result.confidence * 100:.1f}%',
-        f'<span class="k">path       </span> {result.decisive_stage}',
-        "",
-    ]
+    L: list[str] = []
 
+    # --- verdict --------------------------------------------------------
+    L.append(f'{_K("verdict")}<span class="verdict" style="color:{c}">'
+             f'{html.escape(result.confidence_band)}</span>')
+    L.append(_sub("how sure", f'{result.confidence * 100:.0f}%'))
+    decided = {"stage1": "the raw-AI check",
+               "stage2": "the reworded-AI check",
+               "none": "not enough text"}.get(result.decisive_stage,
+                                              result.decisive_stage)
+    L.append(_sub("decided by", decided))
+    L.append("")
+
+    # --- check 1 -------------------------------------------------------
     s1, s2 = result.stage1, result.stage2
-    lines.append(
-        f'<span class="k">stage 1    </span> '
-        + (f'{s1.label:<6} p(ai) {s1.p_ai:.2f}' if s1.ran
-           else f'<span class="muted">-- {html.escape(s1.note)}</span>'))
-    lines.append(
-        f'<span class="k">stage 2    </span> '
-        + (f'{s2.label:<6} p(ai) {s2.p_ai:.2f}' if s2.ran
-           else f'<span class="muted">-- {html.escape(s2.note)}</span>'))
+    L.append(f'{_K("check 1")}Is this raw AI, straight from a chatbot?')
+    if s1.ran:
+        L.append(_sub("result", f'{_lean(s1.p_ai)} '
+                              f'<span class="muted">({s1.p_ai * 100:.0f}% chance it is AI)</span>'))
+    else:
+        L.append(_sub("result", f'<span class="muted">did not run &mdash; '
+                              f'{html.escape(s1.note)}</span>'))
+    L.append("")
 
+    # --- check 2 -------------------------------------------------------
+    L.append(f'{_K("check 2")}Is this AI text reworded to look human?')
+    if s2.ran:
+        L.append(_sub("result", f'{_lean(s2.p_ai)} '
+                              f'<span class="muted">({s2.p_ai * 100:.0f}% chance it is AI)</span>'))
+    else:
+        L.append(_sub("result", f'<span class="muted">did not run &mdash; '
+                              f'{html.escape(s2.note)}</span>'))
+    L.append("")
+
+    # --- writing style ----------------------------------------------
     stl = result.style
     if stl:
-        lines.append(
-            f'<span class="k">style      </span> '
-            f'score {stl.get("style_ai_score")}   '
-            f'cliches {stl.get("cliche_count")}   '
-            f'em-dash {stl.get("em_dash_per_1k_words")}/1k   '
-            f'uniformity {stl.get("sentence_length_uniformity")}')
+        L.append(f'{_K("style")}Habits that AI writing tends to over-use')
         found = stl.get("cliches_found") or []
+        n = stl.get("cliche_count", 0)
         if found:
-            lines.append(f'<span class="muted">           '
-                         f'{html.escape(", ".join(found))}</span>')
+            shown = ", ".join(found[:6]) + ("&hellip;" if len(found) > 6 else "")
+            L.append(_sub("phrases", f'{n} found: <span class="muted">'
+                                     f'{html.escape(shown)}</span>'))
+        else:
+            L.append(_sub("phrases", '0 found'))
+        L.append(_sub("dashes", f'{stl.get("em_dash_per_1k_words")} em-dashes '
+                              f'per 1000 words'))
+        u = stl.get("sentence_length_uniformity", 0) or 0
+        rhythm = ("very even &mdash; robotic" if u >= 0.8
+                  else "fairly even" if u >= 0.6 else "varied &mdash; human-like")
+        L.append(_sub("rhythm", f'sentence lengths {u * 100:.0f}% uniform '
+                              f'<span class="muted">({rhythm})</span>'))
+        sc = stl.get("style_ai_score", 0)
+        L.append(_sub("summary", f'{_score_word(sc)} '
+                               f'<span class="muted">(style score {sc:.2f} / 1.00)</span>'))
+        L.append("")
 
+    # --- fluency / perplexity --------------------------------------
     p = result.perplexity
     if p:
+        L.append(f'{_K("fluency")}How predictable the text is to GPT-2')
         if p.get("available"):
-            lines.append(
-                f'<span class="k">perplexity </span> '
-                f'score {p.get("perplexity_ai_score")}   '
-                f'ppl {p.get("perplexity")}   '
-                f'burstiness {p.get("burstiness")}   '
-                f'[{html.escape(p.get("note") or "")}]')
+            ppl = p.get("perplexity")
+            pw = ("low &mdash; very predictable, typical of AI" if ppl and ppl < 35
+                  else "medium" if ppl and ppl < 80
+                  else "high &mdash; surprising, typical of humans")
+            L.append(_sub("level", f'{ppl} '
+                                    f'<span class="muted">({pw})</span>'))
+            L.append(_sub("variety", f'{p.get("burstiness")} sentence-to-sentence '
+                                   f'<span class="muted">(humans vary more)</span>'))
+            sc = p.get("perplexity_ai_score", 0)
+            L.append(_sub("summary", f'{_score_word(sc)} '
+                                   f'<span class="muted">(fluency score {sc:.2f} / 1.00, '
+                                   f'{html.escape(p.get("note") or "")})</span>'))
         else:
-            lines.append(f'<span class="k">perplexity </span> '
-                         f'<span class="muted">unavailable — '
-                         f'{html.escape(p.get("note") or "")}</span>')
+            L.append(_sub("summary", f'<span class="muted">unavailable &mdash; '
+                                   f'{html.escape(p.get("note") or "")}</span>'))
+        L.append("")
 
     for m in result.messages:
-        lines.append(f'<span class="muted">note: {html.escape(m)}</span>')
+        L.append(f'<span class="muted">note: {html.escape(m)}</span>')
 
-    return "\n".join(lines)
+    return "\n".join(L).rstrip()
 
 
 def _render(history: list[dict]) -> str:
     banner = (
-        '<span class="muted">ai-text-detect 1.0  ::  human / raw-ai / humanized-ai\n'
-        'enter text below, or drop a .pdf / .docx / .txt file. '
-        'humanized AI often evades detection — treat results as evidence.</span>'
+        '<span class="muted">ai-text-detect &mdash; is this text human, AI, or AI reworded to look human?\n'
+        'paste text below or drop in a .pdf / .docx / .txt file.\n'
+        'note: reworded ("humanized") AI is hard to catch &mdash; read this as evidence, not proof.</span>'
     )
     blocks = [banner]
     for turn in history:
