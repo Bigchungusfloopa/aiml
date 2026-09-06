@@ -82,7 +82,12 @@ def train_stage(name: str, csv_path, model_path, vec_path,
     ensure_dirs()
     joblib.dump(clf, model_path)
     joblib.dump(vectorizer, vec_path)
-    print(f"saved -> {model_path.name}, {vec_path.name}")
+    # Persist the held-out split so evaluate.py never scores on training rows.
+    test_path = csv_path.with_name(csv_path.stem + "_test.csv")
+    pd.DataFrame({"text": X_te,
+                  "label": ["ai" if v else "human" for v in y_te]}).to_csv(
+        test_path, index=False)
+    print(f"saved -> {model_path.name}, {vec_path.name}, {test_path.name}")
 
     return {"name": name, "roc_auc": float(auc),
             "n_train": len(y_tr), "n_test": len(y_te)}

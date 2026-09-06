@@ -53,3 +53,10 @@ def test_detector_empty_input_is_graceful():
     res = det.detect("")
     assert res.label == "Uncertain"
     assert not res.stage1.ran
+
+
+def test_classify_cascade_short_input():
+    det = Detector()
+    label, stage = det.classify_cascade("only three words")
+    assert label == "Uncertain"
+    assert stage == "none"
