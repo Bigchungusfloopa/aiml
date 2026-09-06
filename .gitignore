@@ -22,3 +22,4 @@ models/*
 .vscode/*
 !.vscode/settings.json
 WALKTHROUGH.md
+AI_Text_Detection_Study.pdf
