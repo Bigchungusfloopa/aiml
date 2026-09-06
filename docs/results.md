@@ -35,17 +35,17 @@ weighted avg      0.859     0.858     0.858      1800
 
 ### End-to-end cascade — binary (AI vs human)
 
-- Accuracy **89.1%**
+- Accuracy **85.8%**
 
 ```
               precision    recall  f1-score   support
 
-          ai      0.914     0.922     0.918      1763
-       human      0.846     0.831     0.839       907
+          ai      0.983     0.799     0.882      1763
+       human      0.714     0.974     0.824       907
 
-    accuracy                          0.891      2670
-   macro avg      0.880     0.877     0.878      2670
-weighted avg      0.891     0.891     0.891      2670
+    accuracy                          0.858      2670
+   macro avg      0.849     0.886     0.853      2670
+weighted avg      0.892     0.858     0.862      2670
 
 ```
 
@@ -53,20 +53,20 @@ weighted avg      0.891     0.891     0.891      2670
 
 ### End-to-end cascade — 3-way (human / raw-ai / humanized-ai)
 
-- Accuracy **61.5%** — the raw-AI vs humanized-AI boundary is inherently fuzzy (both are AI text)
+- Accuracy **62.4%** — the raw-AI vs humanized-AI boundary is inherently fuzzy (both are AI text)
 
-- Humanized-AI still flagged as AI-generated: **96.6%**
+- Humanized-AI still flagged as AI-generated: **83.6%**
 
 ```
               precision    recall  f1-score   support
 
-       human      0.846     0.831     0.839       907
-      raw-ai      0.433     0.299     0.354       893
+       human      0.714     0.974     0.824       907
+      raw-ai      0.604     0.183     0.280       893
 humanized-ai      0.533     0.713     0.610       870
 
-    accuracy                          0.615      2670
-   macro avg      0.604     0.614     0.601      2670
-weighted avg      0.606     0.615     0.602      2670
+    accuracy                          0.624      2670
+   macro avg      0.617     0.623     0.571      2670
+weighted avg      0.618     0.624     0.572      2670
 
 ```
 
@@ -76,4 +76,4 @@ weighted avg      0.606     0.615     0.602      2670
 
 ![perplexity](figures/perplexity_hist.png)
 
-Median perplexity — human 44.5, AI 22.1.
+Median perplexity — human 43.3, AI 22.1.

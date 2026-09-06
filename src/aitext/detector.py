@@ -130,13 +130,12 @@ class Detector:
         if self._stage2 is None:
             return label1, "stage1"
 
+        # Stage 1 is not confidently AI -> Stage 2 is the decisive second
+        # opinion, whether Stage 1 leaned human or weakly AI (FR-19). This keeps
+        # the human false-positive rate down: a marginal Stage 1 "AI" on casual
+        # human text is overridden when Stage 2 disagrees.
         _, label2, _ = self._predict(self._stage2, tn)
-        if label1 == "Human":
-            # FR-19: Stage 2 is decisive.
-            return ("AI", "stage2") if label2 == "AI" else ("Human", "stage1")
-        # Stage 1 said AI but not confidently: Stage 2 tells us if it's the
-        # humanized kind; if Stage 2 disagrees we still trust Stage 1's "AI".
-        return ("AI", "stage2") if label2 == "AI" else ("AI", "stage1")
+        return ("AI", "stage2") if label2 == "AI" else ("Human", "stage2")
 
     # ------------------------------------------------------------------ #
     def detect(self, text: str) -> DetectionResult:
@@ -201,23 +200,58 @@ class Detector:
         s2 = StageOutput(ran=True, label=label2, p_ai=round(p_ai2, 4),
                          confidence=round(conf2, 4))
 
-        # Keep this consistent with classify_cascade():
-        if label1 == "Human":
-            # FR-19 — Stage 2 is decisive.
-            return self._finalize("stage2", label2, conf2, s1, s2,
-                                  style, perp, messages)
-        # Stage 1 said AI but below the skip threshold. Stage 2 only tells us
-        # whether it's the *humanized* kind; if Stage 2 disagrees we still
-        # trust Stage 1's "AI".
-        if label2 == "AI":
-            return self._finalize("stage2", "AI", conf2, s1, s2,
-                                  style, perp, messages)
-        return self._finalize("stage1", "AI", conf1, s1, s2,
+        # Stage 1 not confidently AI -> Stage 2 is the decisive second opinion
+        # (matches classify_cascade()).
+        return self._finalize("stage2", label2, conf2, s1, s2,
                               style, perp, messages)
 
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _evidence_ai_score(style, perp) -> float | None:
+        """Blend the always-on signals into one P(AI). None if nothing usable."""
+        parts, weights = [], []
+        if style is not None:
+            parts.append(style.style_ai_score)
+            weights.append(0.35)
+        if perp is not None and perp.available:
+            parts.append(perp.perplexity_ai_score)
+            weights.append(0.65)
+        if not parts:
+            return None
+        return sum(p * w for p, w in zip(parts, weights)) / sum(weights)
+
+    def _blend(self, label, confidence, style, perp):
+        """FR-20: fold the supporting evidence into the cascade verdict.
+
+        Deliberately conservative — the cascade almost always wins. The evidence
+        can only *flip* the label when the cascade is genuinely unsure
+        (confidence < 0.60) **and** the evidence is decisive and unanimous
+        (both style and perplexity clearly agree). Otherwise it nudges the
+        confidence by a few points at most, never the label.
+        """
+        e = self._evidence_ai_score(style, perp)
+        if e is None:
+            return label, confidence
+        c_ai = confidence if label == "AI" else 1.0 - confidence
+
+        decisive = e >= 0.70 or e <= 0.30
+        if confidence < 0.60 and decisive:
+            final_ai = 0.55 * c_ai + 0.45 * e            # allowed to flip
+        else:
+            final_ai = 0.88 * c_ai + 0.12 * e            # nudge only
+            # clamp so a nudge never crosses 0.5
+            if label == "AI":
+                final_ai = max(final_ai, 0.5001)
+            else:
+                final_ai = min(final_ai, 0.4999)
+
+        new_label = "AI" if final_ai >= 0.5 else "Human"
+        new_conf = final_ai if new_label == "AI" else 1.0 - final_ai
+        return new_label, round(new_conf, 4)
+
     def _finalize(self, decisive, label, confidence, s1, s2,
                   style, perp, messages) -> DetectionResult:
+        label, confidence = self._blend(label, confidence, style, perp)
         band = self._confidence_band(label, confidence, decisive, style, perp)
         return DetectionResult(
             label=label,

@@ -11,10 +11,11 @@ Detects whether text is **human-written**, **raw AI-generated**, or **humanized
 input text ──┬──▶ rule-based style checker  (rules.py)      ─┐
              ├──▶ GPT-2 perplexity/burstiness (perplexity.py) ─┤
              │                                                 ├──▶ combined result
-             └──▶ Stage 1: raw AI vs human  (model_raw.pkl) ───┤        (detector.py)
-                        │ confident "AI"? ──▶ done (FR-18)      │
-                        │ else "Human"  ──▶ Stage 2 (FR-19) ────┘
+             └──▶ Stage 1: raw AI vs human  (model_raw.pkl) ───┤   + evidence blend
+                        │ P(AI) ≥ 0.95 ──▶ "AI (raw)", done (FR-18)  (detector.py)
+                        │ else         ──▶ Stage 2 decides (FR-19)
                           Stage 2: humanized AI vs human (model_humanized.pkl)
+                          AI ──▶ "AI (humanized)"   Human ──▶ "Human"
 ```
 
 - **Trained components are classical only** — TF-IDF + Logistic Regression
@@ -90,13 +91,14 @@ tables + confusion matrices: **[REPORT.md](REPORT.md)** /
 |---|---|---|
 | Stage 1 — raw AI vs human | 82.0 % | 0.912 |
 | Stage 2 — humanized AI vs human | 85.8 % | 0.941 |
-| **Cascade — binary (AI vs human)** | **89.1 %** | — |
-| Cascade — 3-way (human / raw-ai / humanized-ai) | 61.5 % | — |
+| **Cascade — binary (AI vs human)** | **85.8 %** | — |
+| Cascade — 3-way (human / raw-ai / humanized-ai) | 62.4 % | — |
 
-Humanized AI is still flagged as AI-generated **96.6 %** of the time — the
-cascade only struggles to tell *raw* from *humanized* AI (both are AI text).
-Human false-positive rate ≈ 16 % (the cost of MAGE's hard, varied human writing;
-HC3-only scores ~96 % but doesn't generalise).
+The cascade is tuned conservative: **when it says "AI" it is right ~98 %** of the
+time (it misses ~20 % of AI rather than risk accusing a human). Humanized AI is
+still caught *as AI* 83.6 % of the time. HC3-only scores ~96 % but false-positives
+on any formal human writing — MAGE + HC3 trades headline accuracy for
+generalisation.
 
 ## Run the app
 
