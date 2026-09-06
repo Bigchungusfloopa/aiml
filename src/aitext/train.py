@@ -18,7 +18,8 @@ import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, roc_auc_score
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.pipeline import FeatureUnion
 
 from .paths import (
     MODEL_HUMANIZED,
@@ -46,15 +47,22 @@ def _load(csv_path) -> tuple[list[str], list[int]]:
     return X, y
 
 
-def _new_vectorizer() -> TfidfVectorizer:
-    return TfidfVectorizer(
-        ngram_range=(1, 2),
-        min_df=3,
-        max_df=0.9,
-        sublinear_tf=True,
-        strip_accents="unicode",
-        max_features=100_000,
+def _new_vectorizer() -> FeatureUnion:
+    """Word (1-2 gram) + character (3-5 gram) TF-IDF.
+
+    Char n-grams pick up stylistic regularities — punctuation habits, function-
+    word morphology, spacing — that word n-grams miss, and they help most on the
+    humanized/paraphrased task where vocabulary overlaps heavily with human text.
+    """
+    word = TfidfVectorizer(
+        analyzer="word", ngram_range=(1, 2), min_df=3, max_df=0.9,
+        sublinear_tf=True, strip_accents="unicode", max_features=100_000,
     )
+    char = TfidfVectorizer(
+        analyzer="char_wb", ngram_range=(3, 5), min_df=3, max_df=0.95,
+        sublinear_tf=True, strip_accents="unicode", max_features=100_000,
+    )
+    return FeatureUnion([("word", word), ("char", char)])
 
 
 def train_stage(name: str, csv_path, model_path, vec_path,
@@ -68,16 +76,26 @@ def train_stage(name: str, csv_path, model_path, vec_path,
     Xtr = vectorizer.fit_transform(X_tr)
     Xte = vectorizer.transform(X_te)
 
-    clf = LogisticRegression(max_iter=1000, C=1.0, class_weight="balanced")
+    # Light C sweep on a 3-fold CV of the training data (ROC-AUC).
+    best_c, best_cv = 1.0, -1.0
+    for c in (0.3, 1.0, 3.0, 10.0):
+        cv = cross_val_score(
+            LogisticRegression(max_iter=1000, C=c, class_weight="balanced"),
+            Xtr, y_tr, cv=3, scoring="roc_auc", n_jobs=-1).mean()
+        if cv > best_cv:
+            best_c, best_cv = c, cv
+    print(f"\n=== {name} ===")
+    print(f"chosen C={best_c} (3-fold CV ROC-AUC={best_cv:.3f})")
+
+    clf = LogisticRegression(max_iter=1000, C=best_c, class_weight="balanced")
     clf.fit(Xtr, y_tr)
 
     proba = clf.predict_proba(Xte)[:, 1]
     pred = (proba >= 0.5).astype(int)
 
-    print(f"\n=== {name} ===")
     print(classification_report(y_te, pred, target_names=["human", "ai"], digits=3))
     auc = roc_auc_score(y_te, proba)
-    print(f"ROC-AUC: {auc:.3f}")
+    print(f"held-out ROC-AUC: {auc:.3f}")
 
     ensure_dirs()
     joblib.dump(clf, model_path)

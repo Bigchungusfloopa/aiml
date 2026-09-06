@@ -14,6 +14,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 from aitext.detector import Detector  # noqa: E402
+from aitext.extract import extract_text  # noqa: E402
 
 st.set_page_config(page_title="AI-Generated Text Detection", page_icon="🔍")
 
@@ -40,15 +41,38 @@ st.caption(
 
 detector = get_detector()
 
-text = st.text_area(
-    "Paste text to check",
-    height=260,
-    placeholder="Paste at least ~10 words of English text…",
-)
+tab_paste, tab_upload = st.tabs(["Paste text", "Upload a file"])
+
+with tab_paste:
+    pasted = st.text_area(
+        "Paste text to check",
+        height=260,
+        placeholder="Paste at least ~10 words of English text…",
+        label_visibility="collapsed",
+    )
+
+with tab_upload:
+    uploaded = st.file_uploader(
+        "Upload a PDF, Word document, or text file",
+        type=["pdf", "docx", "txt", "md"],
+    )
+    extracted = ""
+    if uploaded is not None:
+        extracted, err = extract_text(uploaded.name, uploaded.getvalue())
+        if err:
+            st.error(err)
+        elif extracted.strip():
+            st.success(f"Extracted {len(extracted.split()):,} words from "
+                       f"{uploaded.name}")
+            with st.expander("Preview extracted text"):
+                st.text(extracted[:3000] + ("…" if len(extracted) > 3000 else ""))
+
+# The file tab wins when it has content, otherwise use the pasted text.
+text = extracted if extracted.strip() else pasted
 
 if st.button("Check text", type="primary"):
     if not text.strip():
-        st.warning("Please paste some text first.")
+        st.warning("Paste some text or upload a file first.")
     else:
         with st.spinner("Analyzing…"):
             result = detector.detect(text)
