@@ -141,13 +141,16 @@ Full tables in [`docs/results.md`](docs/results.md) (`python -m aitext.report`).
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-python -m aitext.datasets_build --max-per-class 8000   # ~25 min (GPU paraphrasing)
-python -m aitext.train                                  # ~2 min
-python -m aitext.calibrate_perplexity --sample 500      # ~8 min (GPU)
-python -m aitext.report                                 # figures + results.md
-python -m aitext.evaluate                               # console metrics
+python -m aitext.datasets_build --source both --max-per-class 9000  # ~20 min (GPU)
+python -m aitext.train                                               # ~5 min
+python -m aitext.calibrate_perplexity --sample 450                   # ~3 min (GPU)
+python -m aitext.report                                              # figures + results.md
+python -m aitext.evaluate                                            # console metrics
 
 streamlit run app.py
 ```
+
+The committed `models/*.pkl` already correspond to this configuration, so the
+app and `evaluate` run without retraining.
 
 Deployment: see [`DEPLOY.md`](DEPLOY.md).

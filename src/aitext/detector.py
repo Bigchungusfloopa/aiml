@@ -200,7 +200,19 @@ class Detector:
         p_ai2, label2, conf2 = self._predict(self._stage2, text_norm)
         s2 = StageOutput(ran=True, label=label2, p_ai=round(p_ai2, 4),
                          confidence=round(conf2, 4))
-        return self._finalize("stage2", label2, conf2, s1, s2,
+
+        # Keep this consistent with classify_cascade():
+        if label1 == "Human":
+            # FR-19 — Stage 2 is decisive.
+            return self._finalize("stage2", label2, conf2, s1, s2,
+                                  style, perp, messages)
+        # Stage 1 said AI but below the skip threshold. Stage 2 only tells us
+        # whether it's the *humanized* kind; if Stage 2 disagrees we still
+        # trust Stage 1's "AI".
+        if label2 == "AI":
+            return self._finalize("stage2", "AI", conf2, s1, s2,
+                                  style, perp, messages)
+        return self._finalize("stage1", "AI", conf1, s1, s2,
                               style, perp, messages)
 
     # ------------------------------------------------------------------ #
