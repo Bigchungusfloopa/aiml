@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 from aitext.detector import Detector  # noqa: E402
 from aitext.extract import extract_text  # noqa: E402
 
-st.set_page_config(page_title="ai-text-detect", layout="centered")
+st.set_page_config(page_title="czechtext", layout="centered")
 
 MONO = '"SF Mono","SFMono-Regular","Menlo","Monaco","Consolas","Liberation Mono",monospace'
 COLOR = {"AI": "#ff6b6b", "Human": "#5ef2a0", "Uncertain": "#c9c9c9"}
@@ -215,9 +215,8 @@ def _fmt_result(result) -> str:
 
 def _render(history: list[dict]) -> str:
     banner = (
-        '<span class="muted">ai-text-detect &mdash; is this text human, AI, or AI reworded to look human?\n'
-        'paste text below or drop in a .pdf / .docx / .txt file.\n'
-        'note: reworded ("humanized") AI is hard to catch &mdash; read this as evidence, not proof.</span>'
+        '<span class="muted">note: reworded ("humanized") AI is hard to catch '
+        '&mdash; read this as evidence, not proof.</span>'
     )
     blocks = [banner]
     for turn in history:
@@ -234,7 +233,7 @@ def _render(history: list[dict]) -> str:
         '<div class="term">'
         '<div class="term-bar"><span class="dot r"></span>'
         '<span class="dot y"></span><span class="dot g"></span>'
-        '<span class="term-title">ai-text-detect — zsh</span></div>'
+        '<span class="term-title">czechtext — zsh</span></div>'
         f'<div class="term-body">{chr(10).join(blocks)}</div></div>'
     )
 
