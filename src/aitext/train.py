@@ -15,11 +15,13 @@ import argparse
 
 import joblib
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, roc_auc_score
 from sklearn.model_selection import cross_val_score, train_test_split
 from sklearn.pipeline import FeatureUnion
+from sklearn.svm import LinearSVC
 
 from .paths import (
     MODEL_HUMANIZED,
@@ -55,12 +57,12 @@ def _new_vectorizer() -> FeatureUnion:
     humanized/paraphrased task where vocabulary overlaps heavily with human text.
     """
     word = TfidfVectorizer(
-        analyzer="word", ngram_range=(1, 2), min_df=3, max_df=0.9,
-        sublinear_tf=True, strip_accents="unicode", max_features=100_000,
+        analyzer="word", ngram_range=(1, 3), min_df=2, max_df=0.9,
+        sublinear_tf=True, strip_accents="unicode", max_features=200_000,
     )
     char = TfidfVectorizer(
-        analyzer="char_wb", ngram_range=(3, 5), min_df=3, max_df=0.95,
-        sublinear_tf=True, strip_accents="unicode", max_features=100_000,
+        analyzer="char_wb", ngram_range=(2, 5), min_df=2, max_df=0.95,
+        sublinear_tf=True, strip_accents="unicode", max_features=200_000,
     )
     return FeatureUnion([("word", word), ("char", char)])
 
@@ -76,18 +78,28 @@ def train_stage(name: str, csv_path, model_path, vec_path,
     Xtr = vectorizer.fit_transform(X_tr)
     Xte = vectorizer.transform(X_te)
 
-    # Light C sweep on a 3-fold CV of the training data (ROC-AUC).
-    best_c, best_cv = 1.0, -1.0
-    for c in (0.3, 1.0, 3.0, 10.0):
-        cv = cross_val_score(
-            LogisticRegression(max_iter=1000, C=c, class_weight="balanced"),
-            Xtr, y_tr, cv=3, scoring="roc_auc", n_jobs=-1).mean()
-        if cv > best_cv:
-            best_c, best_cv = c, cv
     print(f"\n=== {name} ===")
-    print(f"chosen C={best_c} (3-fold CV ROC-AUC={best_cv:.3f})")
+    print(f"features: {Xtr.shape[1]:,}")
 
-    clf = LogisticRegression(max_iter=1000, C=best_c, class_weight="balanced")
+    # Candidate estimators; pick the best by 3-fold CV ROC-AUC on the train split.
+    candidates: dict[str, object] = {}
+    for c in (0.3, 1.0, 3.0):
+        candidates[f"logreg C={c}"] = LogisticRegression(
+            max_iter=2000, C=c, class_weight="balanced")
+    for c in (0.1, 0.5, 1.0):
+        candidates[f"linsvc C={c}"] = CalibratedClassifierCV(
+            LinearSVC(C=c, class_weight="balanced", dual="auto"), cv=3)
+
+    best_name, best_cv, best_est = "", -1.0, None
+    for cand_name, est in candidates.items():
+        cv = cross_val_score(est, Xtr, y_tr, cv=3, scoring="roc_auc",
+                             n_jobs=-1).mean()
+        print(f"  {cand_name:<14} CV ROC-AUC={cv:.3f}")
+        if cv > best_cv:
+            best_name, best_cv, best_est = cand_name, cv, est
+    print(f"chosen: {best_name} (CV ROC-AUC={best_cv:.3f})")
+
+    clf = best_est
     clf.fit(Xtr, y_tr)
 
     proba = clf.predict_proba(Xte)[:, 1]

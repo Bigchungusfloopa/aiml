@@ -130,9 +130,9 @@ def main() -> None:
     try:
         from .perplexity import _load_model, _text_perplexity  # noqa: PLC2701
         tok, model, device = _load_model()
-        sub = (s1.groupby("label", group_keys=False)
-                 .apply(lambda g: g.sample(min(len(g), args.ppl_sample // 2),
-                                           random_state=args.seed)))
+        per = int(min(args.ppl_sample // 2, s1["label"].value_counts().min()))
+        sub = s1.groupby("label", group_keys=False).sample(
+            n=per, random_state=args.seed)
         vals = {"human": [], "ai": []}
         for t, lab in zip(sub["text"], sub["label"].str.lower()):
             v = _text_perplexity(t, tok, model, device)
