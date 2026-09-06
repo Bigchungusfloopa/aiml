@@ -95,20 +95,30 @@ evaluation never scores on training data.
 
 ## 4. Results
 
-See [`docs/results.md`](docs/results.md) (regenerate with
-`python -m aitext.report`). Headline figures and confusion matrices:
+Trained on **MAGE + HC3**, 9,000 samples/class, stratified 80/20 split.
+Full tables in [`docs/results.md`](docs/results.md) (`python -m aitext.report`).
 
-<!-- RESULTS-PLACEHOLDER: paste the summary numbers here after running report.py -->
+| Model (held-out) | Accuracy | ROC-AUC |
+|---|---|---|
+| Stage 1 — raw AI vs human | **82.0 %** | 0.912 |
+| Stage 2 — humanized AI vs human | **85.8 %** | 0.941 |
+| **Cascade — binary (AI vs human)** | **≈ 89 %** | — |
+| Cascade — 3-way (human / raw-ai / humanized-ai) | ≈ 62 % | — |
+| GPT-2 perplexity signal alone | — | 0.768 |
+
+- **Humanized AI is still flagged as AI-generated ≈ 96 % of the time.** The
+  cascade's weakness is only in telling *raw* AI from *humanized* AI — both are
+  "AI text", so that boundary is fuzzy by nature. The user-facing question ("is
+  this AI?") is answered at ≈ 89 %.
+- **Human false-positive rate ≈ 16 %** — the cost of training on MAGE's hard,
+  varied human writing rather than HC3's clean Q&A. HC3-only would show ~4 % FP
+  but 96 % "accuracy" that doesn't generalise.
 
 ![Stage 1](docs/figures/confusion_stage1.png)
 ![Stage 2](docs/figures/confusion_stage2.png)
-![Cascade](docs/figures/confusion_cascade.png)
+![Binary cascade](docs/figures/confusion_binary.png)
+![3-way cascade](docs/figures/confusion_cascade.png)
 ![Perplexity](docs/figures/perplexity_hist.png)
-
-**Reading the cascade matrix:** the `raw-ai` ↔ `humanized-ai` cell is the fuzzy
-one — paraphrased text still reads as "AI", so Stage 1 often catches it first.
-The metric that matters for a user ("is this AI at all?") stays high; the
-raw/humanized split is secondary evidence.
 
 ---
 

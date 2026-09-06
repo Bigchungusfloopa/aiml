@@ -112,6 +112,16 @@ def main() -> None:
         pred.append("human" if lb != "AI"
                     else ("humanized-ai" if st == "stage2" else "raw-ai"))
 
+    # binary view (the number a user actually cares about)
+    bg = ["human" if g == "human" else "ai" for g in gold]
+    bp = ["human" if p == "human" else "ai" for p in pred]
+    bacc = accuracy_score(bg, bp)
+    brep = classification_report(bg, bp, digits=3, zero_division=0)
+    _save_cm(confusion_matrix(bg, bp, labels=["human", "ai"]),
+             ["human", "ai"], "cascade — AI vs human",
+             FIG_DIR / "confusion_binary.png")
+    print(f"\n=== cascade (binary AI vs human) ===\n{brep}\nacc={bacc:.3f}")
+
     cm = confusion_matrix(gold, pred, labels=labels)
     acc = accuracy_score(gold, pred)
     rep = classification_report(gold, pred, labels=labels, digits=3,
@@ -119,8 +129,12 @@ def main() -> None:
     ai_catch = (cm[2, 1] + cm[2, 2]) / cm[2].sum()
     print(f"\n=== 3-way cascade ===\n{rep}\nacc={acc:.3f} "
           f"humanized-caught-as-AI={ai_catch:.3f}")
-    md += ["### End-to-end cascade (3-way)", "",
-           f"- Accuracy **{acc:.1%}**", "",
+    md += ["### End-to-end cascade — binary (AI vs human)", "",
+           f"- Accuracy **{bacc:.1%}**", "", "```", brep, "```", "",
+           "![binary confusion](figures/confusion_binary.png)", "",
+           "### End-to-end cascade — 3-way (human / raw-ai / humanized-ai)", "",
+           f"- Accuracy **{acc:.1%}** — the raw-AI vs humanized-AI boundary is "
+           "inherently fuzzy (both are AI text)", "",
            f"- Humanized-AI still flagged as AI-generated: **{ai_catch:.1%}**",
            "", "```", rep, "```", "",
            "![cascade confusion](figures/confusion_cascade.png)", ""]

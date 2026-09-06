@@ -29,11 +29,11 @@ from .paths import (
 from .preprocess import normalize
 
 # Stage 1 needs at least this P(AI) to short-circuit and skip Stage 2 (FR-18).
-# Tuned on the held-out split: 0.85 maximises 3-way (human/raw-AI/humanized-AI)
-# accuracy (~0.78) while keeping humanized-AI recall ~0.82. Lower values let
-# Stage 1 grab too many humanized samples and label them "raw AI"; the overall
-# "is this AI?" rate (~0.97) is flat across the range.
-STAGE1_AI_CONFIDENCE = 0.85
+# Tuned on the held-out split (MAGE+HC3): the binary "is this AI?" rate (~0.89)
+# and humanized-AI catch rate (~0.96) are flat across the whole range; 0.95 just
+# gives the best raw-AI vs humanized-AI 3-way split (~0.62 — inherently fuzzy,
+# both classes are AI text).
+STAGE1_AI_CONFIDENCE = 0.95
 # Below this, a "human" verdict is reported as tentative (FR-25).
 CONFIDENT_THRESHOLD = 0.75
 MIN_WORDS = 10  # NFR-3
@@ -226,9 +226,23 @@ class Detector:
             signals.append(perp.perplexity_ai_score >= 0.5)
         return any(signals)
 
+    @staticmethod
+    def _evidence_contradicts(label, style, perp) -> bool:
+        """Perplexity evidence points the opposite way from the cascade label."""
+        if not perp.available:
+            return False
+        if label == "AI":
+            return perp.perplexity_ai_score <= 0.2
+        return perp.perplexity_ai_score >= 0.8
+
     def _confidence_band(self, label, confidence, decisive, style, perp) -> str:
         confident = confidence >= CONFIDENT_THRESHOLD
+        contra = self._evidence_contradicts(label, style, perp)
+
         if label == "AI":
+            if contra:
+                return ("Flagged as AI, but perplexity looks human — "
+                        "low confidence")
             if decisive == "stage2":
                 return ("Likely humanized AI text"
                         if confident else
@@ -236,6 +250,8 @@ class Detector:
             return "AI-generated (confident)" if confident else \
                    "Likely AI-generated"
         # label == Human
+        if contra:
+            return "Flagged as human, but perplexity looks AI — low confidence"
         if decisive == "stage2" and self._evidence_agrees_ai(style, perp):
             return "Likely human, but shows signs of humanized AI"
         if confident:
