@@ -13,7 +13,7 @@ lazily and cached for the process lifetime.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 
 from .paths import MODELS_DIR
@@ -57,6 +57,7 @@ class PerplexityReport:
     # 0..1 nudge toward "AI-like" (low perplexity + low burstiness). Supporting
     # evidence only (FR-16, FR-20).
     perplexity_ai_score: float
+    sentence_perplexities: list[float] = field(default_factory=list)
     model: str = _MODEL_NAME
     available: bool = True
     note: str = ""
@@ -138,6 +139,7 @@ def analyze(text: str) -> PerplexityReport:
             burstiness=round(burstiness, 3),
             mean_sentence_perplexity=round(mean_sp, 3),
             n_sentences_scored=len(sent_ppls),
+            sentence_perplexities=[round(p, 2) for p in sent_ppls],
             perplexity_ai_score=ai_score,
             note="calibrated" if _load_calibrator() is not None else "heuristic",
         )
