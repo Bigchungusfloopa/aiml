@@ -101,6 +101,9 @@ streamlit run app.py
 The app degrades gracefully (NFR-3) if models are missing — it shows the
 rule-based + perplexity evidence and tells you to train.
 
+The trained `models/*.pkl` are committed, so a fresh clone runs the app without
+retraining.
+
 ## Tests
 
 ```bash
@@ -118,3 +121,11 @@ Needs ≥1 GB RAM to hold GPT-2 + the classical models (SRS §2.5).
 - Well-humanized AI text frequently evades detection — industry-wide.
 - False positives on unusually formal/simple text and non-native English.
 - English only. No cryptographic watermark verification.
+
+## Troubleshooting
+
+- `AttributeError: module 'hashlib' has no attribute 'blake2b'` (Streamlit won't
+  start) — your Python's `_blake2` extension can't find `libb2`. Fix on macOS
+  with `brew install libb2`.
+- `RuntimeError: Dataset scripts are no longer supported` — you're on an old
+  `datasets`; this repo already works around it by pulling HC3 as raw JSONL.
