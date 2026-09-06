@@ -40,9 +40,15 @@ input text ──┬──▶ rule-based style checker  (rules.py)      ─┐
 ## Setup
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+# Use Python 3.10–3.12 (this project was built on 3.12).
+python3 -m venv .venv
+source .venv/bin/activate          # then `python` / `streamlit` resolve here
 pip install -r requirements.txt
 ```
+
+If `streamlit: command not found` or `No module named streamlit`, your shell's
+`python3` isn't the one you installed into — activate the venv (above), or call
+it explicitly: `.venv/bin/streamlit run app.py`.
 
 ## Train the models
 
