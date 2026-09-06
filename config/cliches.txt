@@ -1,0 +1,51 @@
+# AI cliché phrases (FR-11). One phrase per line, case-insensitive substring match.
+# Lines starting with '#' and blank lines are ignored. Edit freely without touching code (NFR-6).
+delve into
+in today's world
+in today's fast-paced world
+it's worth noting
+it is worth noting
+it's important to note
+it is important to note
+a testament to
+navigating the
+navigate the complexities
+in the realm of
+when it comes to
+at the end of the day
+the world of
+plays a crucial role
+plays a pivotal role
+plays a vital role
+it's essential to
+it is essential to
+a myriad of
+a plethora of
+underscores the importance
+highlights the importance
+in conclusion
+to sum up
+firstly
+moreover
+furthermore
+in essence
+that being said
+needless to say
+the bottom line is
+let's dive in
+buckle up
+game changer
+tapestry
+ever-evolving
+ever-changing
+fast-paced world
+shed light on
+paradigm shift
+holistic approach
+seamless integration
+robust framework
+cutting-edge
+state-of-the-art
+harness the power
+unlock the potential
+foster a culture
