@@ -269,12 +269,27 @@ def _parse_mix(spec: str) -> dict[str, float]:
     return out
 
 
+def _load_source(source: str, max_per_class: int, seed: int):
+    if source == "mage":
+        return _load_mage(max_per_class, seed)
+    if source == "hc3":
+        return _load_hc3(max_per_class, seed)
+    # both — MAGE for breadth + HC3 for the easy single-model Q&A cases
+    mh, ma = _load_mage(max_per_class, seed)
+    hh, ha = _load_hc3(max_per_class // 2, seed)
+    rng = random.Random(seed)
+    human, ai = mh + hh, ma + ha
+    rng.shuffle(human)
+    rng.shuffle(ai)
+    n = min(len(human), len(ai))
+    return human[:n], ai[:n]
+
+
 def build(max_per_class: int = 8000, seed: int = 42, source: str = "mage",
-          humanizer: str = "mix", mix: str = "t5=0.55,pseudo=0.20,realpara=0.25",
+          humanizer: str = "mix", mix: str = "t5=0.60,pseudo=0.25,realpara=0.15",
           humanized_csv: str | None = None) -> None:
     ensure_dirs()
-    loader = _load_mage if source == "mage" else _load_hc3
-    human, raw_ai = loader(max_per_class, seed)
+    human, raw_ai = _load_source(source, max_per_class, seed)
     print(f"[datasets_build] {source}: {len(human)} human / {len(raw_ai)} raw-AI")
 
     _write(STAGE1_CSV,
@@ -291,7 +306,7 @@ def build(max_per_class: int = 8000, seed: int = 42, source: str = "mage",
     elif humanizer == "t5":
         humanized = _humanize_t5(raw_ai)
     else:  # mix
-        realpara = _load_mage_realpara(seed) if source == "mage" else []
+        realpara = [] if source == "hc3" else _load_mage_realpara(seed)
         humanized = _humanize_mixed(raw_ai, realpara, _parse_mix(mix), seed)
 
     humanized = [t for t in humanized if len(t.split()) >= 5]
@@ -304,9 +319,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Build Stage 1 / Stage 2 training CSVs")
     ap.add_argument("--max-per-class", type=int, default=8000)
     ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--source", choices=["mage", "hc3"], default="mage")
+    ap.add_argument("--source", choices=["mage", "hc3", "both"], default="both")
     ap.add_argument("--humanizer", choices=["mix", "t5", "pseudo"], default="mix")
-    ap.add_argument("--mix", default="t5=0.55,pseudo=0.20,realpara=0.25",
+    ap.add_argument("--mix", default="t5=0.60,pseudo=0.25,realpara=0.15",
                     help="humanizer ratio for --humanizer mix")
     ap.add_argument("--humanized-csv", default=None,
                     help="CSV (text,label) of real humanized AI text for Stage 2")

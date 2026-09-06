@@ -62,9 +62,9 @@ def main() -> None:
 
     df = pd.read_csv(STAGE1_CSV).dropna(subset=["text", "label"])
     df = df[df["text"].str.split().str.len().between(20, 400)]
-    per = min(args.sample, df["label"].value_counts().min())
-    df = (df.groupby("label", group_keys=False)
-            .apply(lambda g: g.sample(per, random_state=args.seed)))
+    per = int(min(args.sample, df["label"].value_counts().min()))
+    df = df.groupby("label", group_keys=False).sample(n=per,
+                                                      random_state=args.seed)
     print(f"scoring {len(df)} texts with GPT-2 ...")
 
     tok, model, device = _load_model()

@@ -59,16 +59,22 @@ hand-tuned heuristic if the calibrator file is absent.
 
 | Split | Source | Notes |
 |---|---|---|
-| Stage 1 — human | **MAGE** (`yaful/MAGE`), `label==1` | 10 domains: reddit-CMV, ELI5, TL;DR, XSum, WritingPrompts, ROCStories, HellaSwag, SQuAD, SciGen, Yelp — domain-stratified sample |
-| Stage 1 — raw AI | **MAGE**, `label==0` | 300+ generators across the same domains |
-| Stage 2 — human | *same* MAGE human pool | identical to Stage 1 (SRS §7.2) |
+| Stage 1 — human | **MAGE + HC3** (`--source both`) | MAGE: 10 domains (reddit-CMV, ELI5, TL;DR, XSum, WritingPrompts, ROCStories, HellaSwag, SQuAD, SciGen, Yelp); HC3: human Q&A answers |
+| Stage 1 — raw AI | **MAGE + HC3** | MAGE: 300+ generators; HC3: ChatGPT answers |
+| Stage 2 — human | *same* human pool as Stage 1 | (SRS §7.2) |
 | Stage 2 — humanized AI | the Stage-1 AI texts, paraphrased | **mixed humanizer** (below) |
 
-**Why MAGE and not just HC3:** HC3 is Q&A only, so a model trained on it learns
-"encyclopaedic / formal ⇒ AI" and false-positives on formal human writing
-(SRS §9). MAGE spans stories, reviews, summaries, forum posts, and exam answers,
-which broadens the human style distribution. HC3 is still selectable with
-`--source hc3`.
+**Why this mix of sources:**
+
+- **HC3 alone** (ChatGPT Q&A vs human Q&A) is *easy* — one model, one domain.
+  A classifier hits ~96 %, but it has really learned "encyclopaedic / formal ⇒
+  AI" and false-positives on formal human writing (SRS §9).
+- **MAGE alone** is *hard* — 300+ generators, 10 domains, short and long texts.
+  Classical TF-IDF tops out around 76 % on it (transformer detectors in the MAGE
+  paper get ~85 % in-distribution, ~65 % out-of-distribution — this is a hard
+  benchmark).
+- **MAGE + HC3** keeps MAGE's domain robustness and adds HC3's clean single-model
+  cases, landing in between. `--source mage` / `hc3` reproduce the extremes.
 
 **Mixed humanizer (SRS §9 — avoid learning one tool's fingerprint):**
 
