@@ -415,11 +415,13 @@ with st.container(border=True):
                 unsafe_allow_html=True,
             )
             fig_g = _make_gauge_fig(ai_pct, verdict_c)
-            st.plotly_chart(fig_g, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(fig_g, use_container_width=True,
+                            config={"displayModeBar": False}, key=f"gauge_{idx}")
 
         # 2. CHECK 1 & CHECK 2: Inlined horizontal bar graphs with readable high-contrast text
         fig_bars = _make_models_fig(res.stage1, res.stage2)
-        st.plotly_chart(fig_bars, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_bars, use_container_width=True,
+                        config={"displayModeBar": False}, key=f"bars_{idx}")
 
         # 3. REMAINING TERMINAL OUTPUT: Style, fluency, and summary explanation
         style_fluency_text = _fmt_style_and_fluency(res)
