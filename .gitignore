@@ -23,3 +23,7 @@ models/*
 !.vscode/settings.json
 WALKTHROUGH.md
 AI_Text_Detection_Study.pdf
+
+# Frontend
+web/node_modules/
+web/dist/

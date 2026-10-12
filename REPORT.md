@@ -169,7 +169,7 @@ python -m aitext.evaluate                                            # console m
 python -m aitext.robustness --folds 5                                # ~10 min, CV error bars
 python -m pytest -q                                                  # 18 tests
 
-streamlit run app.py
+PYTHONPATH=src python -m uvicorn aitext.api:app --port 8000
 ```
 
 The committed `models/*.pkl` already correspond to this configuration, so the
