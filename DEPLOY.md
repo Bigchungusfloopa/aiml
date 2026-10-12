@@ -1,68 +1,39 @@
 # Deployment
 
 The trained models (`models/*.pkl`) are committed, so no training step is
-needed on the host. Two supported targets:
+needed on the host. The app is one Python process (FastAPI + uvicorn) that also
+serves the pre-built React UI from `web/dist`.
 
----
+> The previous Streamlit-specific targets (Hugging Face Streamlit SDK, Streamlit
+> Community Cloud) no longer apply. Any host that can run Python and has Node
+> available at build time works.
 
-## Option A — Hugging Face Spaces (recommended)
+## Build + run
 
-More RAM than Streamlit's free tier, so GPT-2 perplexity stays enabled.
+```bash
+pip install -r requirements.txt        # or requirements-lite.txt, see below
+(cd web && npm ci && npm run build)    # produces web/dist
+PYTHONPATH=src python -m uvicorn aitext.api:app --host 0.0.0.0 --port 8000
+```
 
-1. Create a new Space: <https://huggingface.co/new-space> → **SDK: Streamlit**.
-2. Push this repo to the Space (or connect the GitHub repo):
+- First start with the full requirements downloads GPT-2 (~500 MB); later starts
+  use the cache.
+- Uploads are capped at 10 MB (enforced in `src/aitext/api.py`).
+- `GET /api/health` returns `{"ok": true, "models_ready": true}` for health checks.
+- The `/api` routes are unauthenticated; put the service behind your platform's
+  access control if it shouldn't be public.
 
-   ```bash
-   git remote add space https://huggingface.co/spaces/<user>/<space-name>
-   git push space main
-   ```
+## Memory-constrained hosts
 
-3. Add this YAML header to the **top of the Space's `README.md`** (HF reads it;
-   it is ignored by GitHub, so keep it only on the Space copy or in a separate
-   commit):
-
-   ```yaml
-   ---
-   title: czechtext
-   emoji: 🔍
-   colorFrom: red
-   colorTo: gray
-   sdk: streamlit
-   sdk_version: "1.63.0"
-   app_file: app.py
-   pinned: false
-   ---
-   ```
-
-4. The Space builds from `requirements.txt` and starts `app.py` automatically.
-   First boot downloads GPT-2 (~500 MB) — subsequent boots are cached.
-
----
-
-## Option B — Streamlit Community Cloud
-
-Free tier is ~1 GB RAM, which is tight for torch + GPT-2. Two choices:
-
-- **Full app:** point it at `requirements.txt`. May OOM on first GPT-2 load; if
-  so, switch to the lite path below.
-- **Lite app (reliable):** in the Streamlit Cloud app settings set the
-  requirements file to `requirements-lite.txt`. This drops torch/transformers;
-  the app runs the two classical models + rule-based checker and shows a notice
-  that perplexity analysis is unavailable (NFR-3 graceful degradation).
-
-Steps:
-
-1. <https://share.streamlit.io> → **New app** → pick this repo, branch `main`,
-   main file `app.py`.
-2. **Advanced settings → Python 3.12**, requirements file as above.
-3. Deploy.
-
----
+torch + GPT-2 needs roughly 1–2 GB RAM. On smaller hosts install
+`requirements-lite.txt` instead. This drops torch/transformers; the app runs the
+two classical models + the rule-based checker and shows a notice that perplexity
+analysis is unavailable (NFR-3 graceful degradation).
 
 ## Smoke test after deploy
 
 - Paste ~150 words of obviously-AI text → expect **AI** with a high band.
 - Paste a casual personal paragraph → expect **Human (confident)**.
-- Upload a PDF/DOCX → expect the word count and a result.
-- Open **Evidence breakdown** → Stage 1/2 scores, cliché flags, and
-  perplexity/burstiness (or the "unavailable" note on the lite deploy).
+- Attach a PDF/DOCX → expect the word count in the `> check` line and a result.
+- Check the style/fluency block shows cliché flags and perplexity/burstiness (or
+  the "unavailable" note on the lite install).
